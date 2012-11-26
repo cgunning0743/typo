@@ -13,7 +13,7 @@ class Admin::ContentController < Admin::BaseController
 
   def index
     @search = params[:search] ? params[:search] : {}
-    
+
     @articles = Article.search_with_pagination(@search, {:page => params[:page], :per_page => this_blog.admin_display_elements})
 
     if request.xhr?
@@ -44,7 +44,7 @@ class Admin::ContentController < Admin::BaseController
       flash[:error] = _("Error, you are not allowed to perform this action")
       return(redirect_to :action => 'index')
     end
-    
+
     return(render 'admin/shared/destroy') unless request.post?
 
     @record.destroy
@@ -77,7 +77,7 @@ class Admin::ContentController < Admin::BaseController
 
   def attachment_save(attachment)
     begin
-      Resource.create(:filename => attachment.original_filename, :mime => attachment.content_type.chomp, 
+      Resource.create(:filename => attachment.original_filename, :mime => attachment.content_type.chomp,
                       :created_at => Time.now).write_to_disk(attachment)
     rescue => e
       logger.info(e.message)
@@ -92,7 +92,7 @@ class Admin::ContentController < Admin::BaseController
     @article.text_filter = current_user.text_filter if current_user.simple_editor?
 
     get_fresh_or_existing_draft_for_article
-    
+
     @article.attributes = params[:article]
     @article.published = false
     set_article_author
@@ -142,6 +142,16 @@ class Admin::ContentController < Admin::BaseController
   def new_or_edit
     id = params[:id]
     id = params[:article][:id] if params[:article] && params[:article][:id]
+    if params[:merge_articles]
+      merge_articles
+    else
+      new_or_edit_original
+    end
+  end
+
+  def new_or_edit_original
+    id = params[:id]
+    id = params[:article][:id] if params[:article] && params[:article][:id]
     @article = Article.get_or_build_article(id)
     @article.text_filter = current_user.text_filter if current_user.simple_editor?
 
@@ -159,13 +169,13 @@ class Admin::ContentController < Admin::BaseController
     @article.keywords = Tag.collection_to_string @article.tags
     @article.attributes = params[:article]
     # TODO: Consider refactoring, because double rescue looks... weird.
-        
+
     @article.published_at = DateTime.strptime(params[:article][:published_at], "%B %e, %Y %I:%M %p GMT%z").utc rescue Time.parse(params[:article][:published_at]).utc rescue nil
 
     if request.post?
       set_article_author
       save_attachments
-      
+
       @article.state = "draft" if @article.draft
 
       if @article.save
@@ -183,12 +193,55 @@ class Admin::ContentController < Admin::BaseController
     render 'new'
   end
 
+  def merge_articles
+    id = params[:id]
+    id = params[:article][:id] if params[:article] && params[:article][:id]
+    other_article_id = params[:merge_with]
+    params[:action] = "merge"
+#    printf "======================================================\n"
+#    printf "======================================================\n"
+#    printf "CRG::Content_controller: merge_articles: id=%d\n", id
+#    printf "merge_with: %s\n", other_article_id
+#    puts "Current user is admin?:"
+#    puts current_user.admin?
+    begin
+      @article = Article.find(id)
+      @article.attributes = params[:article]
+      @article.merge_with(other_article_id)
+    rescue ActiveRecord::RecordNotFound
+    end
+#    printf "======================================================\n"
+
+    @article.keywords = Tag.collection_to_string @article.tags
+    # TODO: Consider refactoring, because double rescue looks... weird.
+
+    @article.published_at = DateTime.strptime(params[:article][:published_at], "%B %e, %Y %I:%M %p GMT%z").utc rescue Time.parse(params[:article][:published_at]).utc rescue nil
+
+    if request.post?
+      set_article_author
+      save_attachments
+
+      @article.state = "draft" if @article.draft
+
+      if @article.save
+        destroy_the_draft unless @article.draft
+        set_article_categories
+        set_the_flash
+        redirect_to :action => 'index'
+        return
+      end
+    end
+
+  end
+
   def set_the_flash
     case params[:action]
     when 'new'
       flash[:notice] = _('Article was successfully created')
     when 'edit'
       flash[:notice] = _('Article was successfully updated.')
+    when 'merge'
+      flash[:notice] = _('Article was successfully merged.')
     else
       raise "I don't know how to tidy up action: #{params[:action]}"
     end
