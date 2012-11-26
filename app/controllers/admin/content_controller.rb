@@ -142,7 +142,7 @@ class Admin::ContentController < Admin::BaseController
   def new_or_edit
     id = params[:id]
     id = params[:article][:id] if params[:article] && params[:article][:id]
-    if params[:merge_articles]
+    if params[:merge_with] && !params[:merge_with].empty?
       merge_articles
     else
       new_or_edit_original
